@@ -78,7 +78,7 @@ class App extends Component {
     });
     ipc.send("addHotkey", "CmdOrCtrl+R");
     ipc.on("onHotkey", (event, arg) => {
-      if (arg === "CmdOrCtrl+R") {
+      if (arg === "CmdOrCtrl+R" && !this.state.loading) {
         this.setState({loading: true})
         ipc.send("log", "Record new sound");
         pyshell.send("s");
