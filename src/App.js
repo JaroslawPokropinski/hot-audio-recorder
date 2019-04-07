@@ -1,18 +1,18 @@
-import React, { Component } from "react";
-import moment from "moment";
-import "./App.css";
-import dbController from "./DbController";
-const remote = window.require("electron").remote;
-const ipc = window.require("electron").ipcRenderer;
-const { PythonShell } = remote.require("python-shell");
-const sqlite3 = remote.require("sqlite3");
+import React, { Component } from 'react';
+import moment from 'moment';
+import './App.css';
+import dbController from './DbController';
+const remote = window.require('electron').remote;
+const ipc = window.require('electron').ipcRenderer;
+const { spawn } = remote.require('child_process');
+const sqlite3 = remote.require('sqlite3');
 
 class App extends Component {
   state = {
     files: [],
     audio: "",
     audioController: undefined,
-    db: new sqlite3.Database("db/example.db"),
+    db: new sqlite3.Database('db/example.db'),
     loading: false
   };
   // todo put audio object in state
@@ -39,14 +39,28 @@ class App extends Component {
     return (
       <div className="App">
         <ul className="sound-list">{fileList}</ul>
-        {(this.state.loading)?<div className="curtain"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></div>:''}
+        {this.state.loading ? (
+          <div className="curtain">
+            <div className="lds-ring">
+              <div />
+              <div />
+              <div />
+              <div />
+            </div>
+          </div>
+        ) : (
+          ""
+        )}
         <audio controls src={this.state.audio ? this.state.audio : ""} />
       </div>
     );
   }
 
   componentDidMount() {
-    const pyshell = new PythonShell("python/recorder.py");
+    // windows:
+    // const pyprocess = spawn('python/recorder.exe')
+    // portable:
+    const pyprocess = spawn('python', ['python/recorder.py'])
     // create table if it is not present
     dbController.createDb(this.state.db);
     dbController.getSounds(this.state.db, (err, rows) => {
@@ -57,31 +71,39 @@ class App extends Component {
       this.setState({ files: rows });
     });
 
-    pyshell.on("message", message => {
+    pyprocess.stdout.on("data", b64data => {
+      ipc.send("log", `msg: ${(b64data.length < 100)?b64data:b64data.slice(0, 100) + "..."}`);
+      if (b64data.length <= 1) {
+        this.setState({ loading: false });
+        return;
+      }
       const date = moment().format("YYYY-MM-DD HH:mm:ss");
-      dbController.insertSound(this.state.db, date, message);
+      dbController.insertSound(this.state.db, date, b64data);
+
+      
       dbController.getSounds(this.state.db, (err, rows) => {
         if (err) {
-          console.error(err);
+          ipc.send("log", `sqlerr: ${err}`);
           return;
         }
         this.setState({ files: rows, loading: false });
       });
     });
 
-    pyshell.on("stderr", function(message) {
-      console.error("Err: ", message);
+    pyprocess.stderr.on("data", (message) => {
+      ipc.send("log", `err: ${(message.length < 100)?message:message.slice(0, 100) + "..."}`);
     });
 
-    pyshell.on("close", function(message) {
-      console.error("Close: ", message);
+    pyprocess.on("close", (code) => {
+      ipc.send("log", `exited with: ${code}`);
     });
+    
     ipc.send("addHotkey", "CmdOrCtrl+R");
     ipc.on("onHotkey", (event, arg) => {
       if (arg === "CmdOrCtrl+R" && !this.state.loading) {
-        this.setState({loading: true})
+        this.setState({ loading: true });
         ipc.send("log", "Record new sound");
-        pyshell.send("s");
+        pyprocess.stdin.write('s\n')
       }
     });
   }
@@ -96,7 +118,7 @@ class App extends Component {
   }
   onSoundDelete(e, file) {
     dbController.deleteSound(this.state.db, file.id);
-    ipc.send("log", `id: ${file.id} date: ${file.date}`);
+    ipc.send("log", `delete: {id: ${file.id}, date: ${file.date}}`);
     dbController.getSounds(this.state.db, (err, rows) => {
       if (err) {
         console.error(err);

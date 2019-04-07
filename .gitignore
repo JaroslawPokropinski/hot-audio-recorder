@@ -23,3 +23,7 @@ yarn-debug.log*
 yarn-error.log*
 db/example.db
 python/__pycache__/
+.vscode/
+*.dll
+python/recorder.build/
+python/recorder.exe

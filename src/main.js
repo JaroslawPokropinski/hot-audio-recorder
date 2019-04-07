@@ -13,10 +13,15 @@ let mainWindow;
 
 function createWindow() {
     // Create the browser window.
-    mainWindow = new BrowserWindow({ width: 450, height: 600 });
+    mainWindow = new BrowserWindow({ width: 450, height: 600, show: false, titleBarStyle: 'hidden' });
 
     // and load the index.html of the app.
     mainWindow.loadURL('http://localhost:3000');
+    mainWindow.setMenu(null);
+
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show()
+    })
 
     // Open the DevTools.
     // mainWindow.webContents.openDevTools();

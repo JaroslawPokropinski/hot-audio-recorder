@@ -3,7 +3,12 @@ import pyaudio
 from pydub import AudioSegment
 import base64
 
+import sys
 import threading
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+    sys.stderr.flush()
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 2
@@ -54,20 +59,26 @@ class RecorderThread (threading.Thread):
         sound = AudioSegment.from_file(BytesIO(bufferjoin), format="raw", sample_width=SAMPWIDTH, frame_rate=RATE, channels=CHANNELS)
         self.frames.append(sound)
     def saveAudio(self):
+        eprint("Save audio")   
         self.lock.acquire()
         sounds = self.frames
-    
         if len(sounds) <= 0:
-            print("Sounds array is empty (wait for 1 sec and try again)")
-            return
+            self.lock.release()
+            eprint("Sounds array is empty (wait for 1 sec and try again)\n")
+            return b"\0"
         sounds_sum = sounds[0]
         sounds_len = len(sounds)
+        eprint("Sum audio")
         for i in range(1, sounds_len):
             sounds_sum = sounds_sum + sounds[i]
+        eprint("Summed audio")
         compressedSound = BytesIO()
         sounds_sum.export(compressedSound, format="mp3")
+        eprint("Exported audio")
         data = compressedSound.read()
         self.lock.release()
+        eprint("Send audio")
+        # return data
         return base64.b64encode(data)
 
     def kill(self):
@@ -75,49 +86,8 @@ class RecorderThread (threading.Thread):
         self.scheduleKill = True
         self.lock.release()
 
-def startRecording(sharedMemory):
-    sharedMemory["lock"].acquire()
-    # start Recording
-    stream = sharedMemory["audio"].open(format=FORMAT, channels=CHANNELS,
-                    rate=RATE, input=True,
-                    frames_per_buffer=CHUNK,
-                    input_device_index = 2)
-    kl = sharedMemory["killSig"]
-    sharedMemory["lock"].release()
-    while not kl:
-        sharedMemory["lock"].acquire()
-        data = stream.read(CHUNK)
-        sharedMemory["buffer"].append(data)
-        if len(sharedMemory["buffer"]) > CHUNKSPERSECOND:
-            saveBuffer(sharedMemory)
-            sharedMemory["buffer"] = []
-            
-        if len(sharedMemory["frames"]) > 300:
-            newFirst = len(sharedMemory["frames"]) - 300
-            sharedMemory["frames"] = sharedMemory["frames"][newFirst:]
-        
-        kl = sharedMemory["killSig"]
-        sharedMemory["lock"].release()
-
-    stream.stop_stream()
-    stream.close()
-    sharedMemory["lock"].acquire()
-    sharedMemory["audio"].terminate()  
-    sharedMemory["lock"].release() 
-
-def close(sharedMemory):
-    sharedMemory["lock"].acquire()
-    sharedMemory["killSig"] = True
-    sharedMemory["lock"].release() 
 
 def main():
-    sharedMemory = {
-        "lock": threading.Lock(),
-        "killSig": False,
-        "buffer": [],
-        "frames": [],
-        "audio" : pyaudio.PyAudio()
-    }
     
     rec = RecorderThread()
     rec.start()
@@ -125,7 +95,11 @@ def main():
         i = input()
         if i == 's':
             data = rec.saveAudio()
-            print(data.decode("utf-8"))
+            # print(data.decode("utf-8"))
+            sys.stdout.buffer.write(data)
+            # sys.stdout.write("\n")
+            sys.stdout.flush()
+
         if i == 'q':
             rec.kill()
             rec.join()
